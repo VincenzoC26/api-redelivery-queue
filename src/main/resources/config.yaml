@@ -1,0 +1,9 @@
+http:
+  port: "8081"
+  
+amqp:
+  host: "localhost"
+  port: "5673"
+  virtualHost: "/"
+  username: "USERNAME"
+  password: "PASSWORD"

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<flow name="PublishMessage" doc:id="0db272bc-8282-4abe-b3e8-53cd18dc7d5a" >
+		<http:listener doc:name="GET /test" doc:id="8be4d48e-ad33-45c1-b854-8984322ab0c2" path="/test" allowedMethods="GET" config-ref="HTTP_Listener_config"/>
+		<ee:transform doc:name="messaggio da inviare" doc:id="8ea43fae-8b7e-4d68-a768-945e5a5798a5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"messaggio": "Messaggio da inviare"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<amqp:publish doc:name="Publish to source-queue" doc:id="721b7472-33d4-4409-87d1-7e27b2a5994d" config-ref="AMQP_Config" exchangeName="source_queue_exchange">
+			<amqp:routing-keys >
+				<amqp:routing-key value="1" />
+			</amqp:routing-keys>
+		</amqp:publish>
+	</flow>
+	<flow name="QueueProcessor" doc:id="3e44316b-b3b8-4f49-a5a6-0b9c19bb9a0a" >
+		<amqp:listener doc:name="Listener source_queue" doc:id="ca7c2653-b1f8-4c13-819a-0488af6453ae" config-ref="AMQP_Config" queueName="source_queue" ackMode="MANUAL">
+			<amqp:response >
+				<amqp:properties expirationTimeUnit="MINUTES" />
+			</amqp:response>
+		</amqp:listener>
+		<ee:transform doc:name="ackToken, redelivery_count" doc:id="66b9b4ff-716a-48af-a586-15bf6b35337e" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="redelivery_count" ><![CDATA[%dw 2.0
+output application/java
+---
+if (isEmpty(attributes.headers.count))
+    1
+else 
+    attributes.headers.count as Number + 1]]></ee:set-variable>
+				<ee:set-variable variableName="ackToken" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.ackId]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<raise-error doc:name="errore test" doc:id="7432c9f0-4175-4bbd-b50b-7ff25c17a288" type="ERROR: TEST"/>
+		<error-handler>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="16125228-bddd-435e-9489-0ec7c150a5be" >
+				<choice doc:name="Choice" doc:id="a3eb1025-85e3-4f35-9faf-cbedfbad9158" >
+					<when expression="#[vars.redelivery_count &lt;= 3]" >
+						<amqp:publish doc:name="Publish to source_queue" doc:id="cb3be2e3-e254-4729-b395-9da5a1e19b07" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
+							<amqp:routing-keys >
+								<amqp:routing-key value="1" />
+							</amqp:routing-keys>
+							<amqp:message >
+								<amqp:headers ><![CDATA[#[output application/java
+---
+{
+	count: vars.redelivery_count
+}]]]></amqp:headers>
+							</amqp:message>
+						</amqp:publish>
+						<logger level="INFO" doc:name="Logger" doc:id="77054815-7969-4733-bb65-1b935c531ea3" message='#["Tentativo numero: " ++ vars.redelivery_count as Number]'/>
+					</when>
+					<otherwise >
+						<amqp:publish doc:name="Publish to source_queue.dlq" doc:id="4d456c0c-61b9-4c0d-8d9f-e74ffb4fd60d" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
+							<amqp:routing-keys >
+								<amqp:routing-key value="2" />
+							</amqp:routing-keys>
+						</amqp:publish>
+						<logger level="INFO" doc:name="Logger" doc:id="8d30d627-b52d-4609-80c6-99a77235b4bc" message='#["Messaggio inviato alla dead letter queue"]'/>
+					</otherwise>
+				</choice>
+				<amqp:ack doc:name="Ack" doc:id="7bd7e020-14ae-431b-9253-09e0e4d2ab8b" ackId="#[vars.ackToken]" />
+			</on-error-continue>
+		</error-handler>
+	</flow>
+</mule>
