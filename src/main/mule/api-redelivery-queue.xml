@@ -47,12 +47,22 @@ output application/java
 attributes.ackId]]></ee:set-variable>
 			</ee:variables>
 		</ee:transform>
-		<raise-error doc:name="errore test" doc:id="7432c9f0-4175-4bbd-b50b-7ff25c17a288" type="ERROR: TEST"/>
+		<raise-error doc:name="errore mule:expression" doc:id="7432c9f0-4175-4bbd-b50b-7ff25c17a288" type="EXPRESSION"/>
 		<error-handler>
-			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="16125228-bddd-435e-9489-0ec7c150a5be" >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="16125228-bddd-435e-9489-0ec7c150a5be" type="ANY">
 				<choice doc:name="Choice" doc:id="a3eb1025-85e3-4f35-9faf-cbedfbad9158" >
-					<when expression="#[vars.redelivery_count &lt;= 3]" >
-						<amqp:publish doc:name="Publish to source_queue" doc:id="cb3be2e3-e254-4729-b395-9da5a1e19b07" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
+					<when expression='#[error.errorType.identifier== "EXPRESSION" and vars.redelivery_count &lt;= 3]'>
+						<ee:transform doc:name="Transform Message" doc:id="577b2911-29d0-4f66-b65b-cab976de722e">
+										<ee:message>
+										</ee:message>
+										<ee:variables>
+											<ee:set-variable variableName="redelivery_count"><![CDATA[%dw 2.0
+output application/java
+---
+4]]></ee:set-variable>
+										</ee:variables>
+									</ee:transform>
+						<amqp:publish doc:name="Publish to source_queue" doc:id="e061cbb9-b269-4552-91fe-b061844e2d20" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
 							<amqp:routing-keys >
 								<amqp:routing-key value="1" />
 							</amqp:routing-keys>
@@ -64,7 +74,22 @@ attributes.ackId]]></ee:set-variable>
 }]]]></amqp:headers>
 							</amqp:message>
 						</amqp:publish>
-						<logger level="INFO" doc:name="Logger" doc:id="77054815-7969-4733-bb65-1b935c531ea3" message='#["Tentativo numero: " ++ vars.redelivery_count as Number]'/>
+						<logger level="INFO" doc:name="Logger" doc:id="b3b4d3f2-2eb2-4557-b95b-8e58d8df63c1" message='#["Invio diretto alla dead letter queue"]'/>
+					</when>
+					<when expression="#[vars.redelivery_count &lt;= 3]">
+						<amqp:publish doc:name="Publish to source_queue" doc:id="770c5ef6-e7b8-4af2-b2e7-239799aae1b9" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
+							<amqp:routing-keys >
+								<amqp:routing-key value="1" />
+							</amqp:routing-keys>
+							<amqp:message >
+								<amqp:headers ><![CDATA[#[output application/java
+---
+{
+	count: vars.redelivery_count
+}]]]></amqp:headers>
+							</amqp:message>
+						</amqp:publish>
+						<logger level="INFO" doc:name="Logger" doc:id="d2052d70-daa4-4002-bd4a-ad33ad892fff" message='#["Tentativo numero: " ++ vars.redelivery_count as String]'/>
 					</when>
 					<otherwise >
 						<amqp:publish doc:name="Publish to source_queue.dlq" doc:id="4d456c0c-61b9-4c0d-8d9f-e74ffb4fd60d" config-ref="AMQP_Config" exchangeName="source_queue_exchange" >
@@ -72,7 +97,7 @@ attributes.ackId]]></ee:set-variable>
 								<amqp:routing-key value="2" />
 							</amqp:routing-keys>
 						</amqp:publish>
-						<logger level="INFO" doc:name="Logger" doc:id="8d30d627-b52d-4609-80c6-99a77235b4bc" message='#["Messaggio inviato alla dead letter queue"]'/>
+						<logger level="INFO" doc:name="Logger" doc:id="49195439-149e-4717-bd8d-7e08011d2026" message='#["Pubblicato sulla dead letter queue" ++ " " ++ error.errorType.identifier as String]'/>
 					</otherwise>
 				</choice>
 				<amqp:ack doc:name="Ack" doc:id="7bd7e020-14ae-431b-9253-09e0e4d2ab8b" ackId="#[vars.ackToken]" />
